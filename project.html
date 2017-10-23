@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kruscal</title>
+    <style>
+        body {
+            line-height: 1.7;
+        }
+    </style>
+</head>
+<body>
+    <canvas height="500" width="1100" id="canvas">canvas</canvas>
+    <script>
+        var VERTICES = [new Vertex(new Point(250, 20), 0), new Vertex (new Point(200, 200), 1),
+            new Vertex(new Point(45, 200), 2), new Vertex(new Point(300, 100), 3),
+            new Vertex(new Point(100, 40), 4), new Vertex(new Point(100, 300), 5),
+            new Vertex(new Point(300, 250), 6), new Vertex(new Point(400, 100), 7),
+            new Vertex(new Point(100, 400), 8), new Vertex(new Point(450, 150), 9),
+            new Vertex(new Point(225, 325), 10), new Vertex(new Point(125, 145), 11),
+            new Vertex(new Point(430, 375), 12), new Vertex(new Point(340, 420), 13),
+            new Vertex(new Point(425, 270), 14)];
+        //
+        var canvas = document.getElementById("canvas"),
+            ctx = canvas.getContext("2d");
+        var BACKGROUND_COLOR = "#FFFFFF"
+        var GRAPH_COLOR = "#000000";
+        var TEXT_COLOR = "#000000";
+        var COLOR_OF_ARROW = "#DC143C";
+        var COLOR_OF_POINTER_ONE = "#006400";
+        var COLOR_OF_POINTER_TWO = "#00008B";
+        var RADIUS_OF_VERTEX = 15; //px
+        var WIDTH_OF_ARROW = 7; //px; width of arrow for oriented edges and arrow-pointers
+        var INTERVAL_OF_ANIMATION = 5; // ms; !!!SPEED * INTERVAL_OF_ANIMATION * 4 < EPS!!!
+        var SPEED = 0.049; // px / ms
+        var EPS = 1; // px; if distance between two points is less than EPS -> this points has similar coordinates 
+        var WIDTH_OF_CANVAS = 1100;
+        var LINE_INDENT = 10; // px; line spacing for text, which is displayed on the screen
+        var TIME_FOR_REFLECTION = 800; // ms; this / boost(see below) - constant for function timeout
+        
+        function Point(x, y) { 
+            this.x = x;
+            this.y = y;
+        }
+        
+        //centre - Point which is centre of circle, which is mapping vertex to canvas
+        //name - Number which is name of vertex 
+        function Vertex (centre, name) { 
+            var SIZE_OF_TEXT = 15; // size of name of vertex
+            this.centre = centre;
+            this.name = name;
+            //this function draw a vertex on canvas
+            this.show = function() {
+                ctx.beginPath();
+                var x = this.centre.x, y = this.centre.y;
+                ctx.arc(x, y, RADIUS_OF_VERTEX, 0, 2 * Math.PI, true);
+                ctx.fillStyle = BACKGROUND_COLOR;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(x, y, RADIUS_OF_VERTEX, 0, 2 * Math.PI, true);
+                ctx.strokeStyle = GRAPH_COLOR;
+                ctx.stroke();
+                showText(this.name, SIZE_OF_TEXT, this.centre);
+            }
+        }
+        
+        
+        //Class for not oriented edges, which have cost
+        //begin and end - tho Vertex, which are begin and end of this edge
+        //cost is Number which is cost of this edge
+        function WeightEdge (begin, end, cost) {
+            var SIZE_OF_TEXT = 10; //px; size of text of edge
+            var BOLD = 10; // px; size of rectangle in which the cost is displayed
+            this.begin = begin;
+            this.end = end;
+            this.cost = cost;
+            //this function draw a edge on canvas
+            this.show = function() {
+                var a = this.begin.centre, b = this.end.centre;
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.strokeStyle = GRAPH_COLOR;
+                ctx.stroke();
+                var mid = new Point((a.x + b.x) / 2, (a.y + b.y) / 2);
+                ctx.clearRect(mid.x - BOLD, mid.y - BOLD, 2 * BOLD, 2 * BOLD);
+                ctx.strokeRect(mid.x - BOLD, mid.y - BOLD, 2 * BOLD, 2 * BOLD);
+                showText(this.cost, SIZE_OF_TEXT, mid);
+            }
+        }
+
+        //Class for oriented edges
+            //begin and end - tho Vertex, which are begin and end of this edge
+            function OrientedEdge(begin, end) {
+                //this function draw a edge on canvas
+                this.show = showArrow.bind(null, begin.centre, end.centre, GRAPH_COLOR, RADIUS_OF_VERTEX);
+        }
+
+        //WritingEdge is class for textual representation of edges on canvas, which consists of tree number;
+        //name of begin, name of end, cost
+        //edge - WeightEdge 
+        //y - Number, height on which the text is located
+        function WritingEdge (edge, y) {
+            var BOLD = 20; //px; distance between name of begin, name of end, cost  
+            var SIZE_OF_TEXT = 10;// px; 
+            this.edge = edge;
+            //this function draw a text of edge on canvas
+            //text is located in th middle of the canvas 
+            this.show = function () {
+                showText(edge.begin.name, SIZE_OF_TEXT, new Point(WIDTH_OF_CANVAS / 2 - BOLD, y));
+                showText(edge.end.name, SIZE_OF_TEXT, new Point(WIDTH_OF_CANVAS / 2, y));
+                showText(edge.cost, SIZE_OF_TEXT, new Point(WIDTH_OF_CANVAS / 2 + BOLD, y));
+            }
+        }
+
+        //pointer for vertices of SNM
+        //centre - Point which is centre of circle, which is mapping pointer to canvas
+        //color - string, which is color of pointer. For example: "#010101" 
+        function Pointer(centre, color) {
+            this.centre = new Point(centre.x, centre.y)
+            this.color = color;
+            //this function draw a pointer on canvas
+            this.show = function () {
+                ctx.beginPath();
+                ctx.lineWidth = 4;
+                ctx.arc(this.centre.x, this.centre.y, RADIUS_OF_VERTEX, 0, 2 * Math.PI, true);
+                ctx.strokeStyle = this.color;
+                ctx.stroke();
+            }
+        }
+        
+        //Horizontal right arrow-pointer
+        //begin - Point, which is right point of arrow
+        function Arrow(begin) {
+            var LENGTH_OF_ARROW = 30; //px;
+            this.begin = begin;
+            var end = new Point(begin.x - LENGTH_OF_ARROW, begin.y);
+            //slide down this arrow on delta px
+            this.slideDown = function (delta) {
+                begin.y += delta;
+                end.y += delta;
+            }
+            //this function draw a arrow-pointer on canvas
+            this.show = showArrow.bind(null, end, begin, COLOR_OF_ARROW, 0);
+        }
+        
+        //draw an arrow on canvas 
+        //begin, end - Point which is begin and end of arrow (arrow oriented from the begin to the end)
+        //color - String, which is color of arrow
+        //offset - Number, the shift of the beginning of the arrow pointer from its end
+        function showArrow(begin, end, color, offset) {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(begin.x, begin.y);
+            ctx.lineTo(end. x, end.y);
+            var a = offsetInLine(end, begin, offset);
+            var b = offsetInLine(end, begin, offset + WIDTH_OF_ARROW * 2)
+            ctx.moveTo(b.x + (a.y - b.y) / 2, b.y - (a.x - b.x) / 2);
+            ctx.lineTo(a.x, a.y);
+            ctx.lineTo(b.x - (a.y - b.y) / 2, b.y + (a.x - b.x) / 2);
+            ctx.stroke();
+        }
+
+        //a, b: Point
+        //r: Number
+        //return Point x which is on the line segment ab; distance between x and a = r
+        function offsetInLine(a, b, r) {
+            var angle = Math.atan2(b.x - a.x, b.y - a.y);
+            return new Point (a.x + r * Math.sin(angle), a.y + r * Math.cos(angle));
+        }
+
+        //a, b: Point
+        //return distance between b and a
+        function dist (a, b) {
+            return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+        }
+
+        //text: String; size: Number, a: Point
+        //show text on canvas with coordinate a
+        function showText(text, size, a) {
+            ctx.fillStyle = TEXT_COLOR;
+            ctx.textBaseline = "middle";
+            ctx.textAlign = "center";
+            ctx.font = "bold " + size + "px sans-serif";
+            ctx.fillText(text, a.x, a.y);
+        }
+
+        var vertices = [], edges = [], edgeToShow = []; //vertices, WeightEdge and WritingEdge of graph
+        var parent = [], high = []; // arrays for SNM
+        var verticesOfSNM = [], edgesOfSNM = []; // vertices, OrientedEdge of SNM
+        var boost = 1; // multiplier for speed
+        var needToShow = [[], [], [], [], [], [], []]; //array of all elements, which is show on canvas
+        // 0-edges; 1-edgesOfSNM; 2-vertices, 3-verticesOfSNM; 4-arrow-pointer; 5-pointers; 6-WritingEdge 
+        var events = [], indOfEvent = 0; //Arrow of events and its index
+        var isStarted = false, isPlay = true; //isStarted - true if kruscale is processing, otherwise false
+        //isPlay - false, when is pause, otherwise - true;
+
+        //process next event
+        function processNextEvent() {
+            if (indOfEvent + 1 == events.length)
+                return;
+            events[++indOfEvent].execute();
+        }
+
+        //this function similar with setTimeout, but it differs in that if boost changed timeout will be changed  
+        function timeout(func) {
+            var start = Date.now(), time = start;
+            var timer = setInterval(function () {
+                if (!isStarted) return;
+                if (time - start > TIME_FOR_REFLECTION) {
+                    clearInterval(timer);
+                    func();
+                    return;
+                }
+                time += INTERVAL_OF_ANIMATION * boost;
+            }, INTERVAL_OF_ANIMATION)
+        }
+
+        //event, which find and writing on its place the root in SNM for vertex which name is v
+        //also it moves the pointer along the path to the root
+        //v: Number; pointer: Pointer
+        function FindingRoot(v, pointer) {
+            this.execute = function () {
+                if (!isStarted) return recovery();
+                needToShow[5].push(pointer);
+                showAll();
+                if (parent[v] === -1) {
+                    events[indOfEvent] = v;
+                    timeout(processNextEvent);
+                    return;
+                }
+                var th = this;
+                var timer = setInterval(function () {
+                    if (!isStarted) return;
+                    if (dist(pointer.centre, verticesOfSNM[parent[v]].centre) < EPS) {
+                        clearInterval(timer);
+                        v = parent[v];
+                        th.execute();
+                        return;
+                    }
+                    pointer.centre = offsetInLine(pointer.centre, verticesOfSNM[parent[v]].centre,
+                        SPEED * boost * INTERVAL_OF_ANIMATION);
+                    showAll();
+                }, INTERVAL_OF_ANIMATION)
+            }
+        }
+
+        //event which union two root in SNM if it are different and show result, or do nothing if it is not different
+        //edge: WeightEdge
+        function Union(edge) {
+            this.execute = function () {
+                if (!isStarted) return;
+                var v = events[indOfEvent - 1], u = events[indOfEvent -2];
+                if (v !== u) {
+                    if (high[v] > high[u]) {
+                        parent[u] = v;
+                        edgesOfSNM.push(new OrientedEdge (verticesOfSNM[u], verticesOfSNM[v]));
+                    }
+                    else {
+                        parent[v] = u;
+                        edgesOfSNM.push(new OrientedEdge (verticesOfSNM[v], verticesOfSNM[u]));
+                    }
+                    if (high[v] === high[u]) {
+                        high[u]++;
+                    }
+                    edges.push(edge);
+                }
+                needToShow[5] = [];
+                showAll();
+                processNextEvent();
+            }
+        }
+
+        //event witch slide down arrow-pointer to y
+        //y:Number
+        function MovingOfArrow(y) {
+            var arrow = needToShow[4][0];
+            this.execute = function () {
+                var timer = setInterval(function () {
+                    if (!isStarted) return;
+                    if (arrow.begin.y >= y) {
+                        clearInterval(timer);
+                        timeout(processNextEvent);
+                        return;
+                    }
+                    arrow.slideDown(SPEED * INTERVAL_OF_ANIMATION * boost);
+                    showAll();
+                }, INTERVAL_OF_ANIMATION)
+            }
+        }
+
+        //some example of graph
+        function example() {
+            vertices = VERTICES.slice(0, 8);
+            var v = vertices;
+            edges = [new WeightEdge(v[4], v[3], -5), new WeightEdge(v[0], v[3], 60), new WeightEdge(v[7], v[6], -4),
+                new WeightEdge(v[1], v[4], 0), new WeightEdge(v[0], v[5], -3), new WeightEdge(v[5], v[7], 12),
+                new WeightEdge(v[6], v[0], 5), new WeightEdge(v[5], v[6], 0), new WeightEdge(v[0], v[7], 20),
+                new WeightEdge(v[1], v[2], -2), new WeightEdge(v[1], v[3], 1), new WeightEdge(v[2], v[4], 5),
+                new WeightEdge(v[3], v[6], 52)]
+            needToShow[2] = vertices;
+            needToShow[0] = edges;
+            showAll();
+        }
+        example();
+
+        //function witch draw all elements of array needToShow on canvas
+        function showAll() {
+            ctx.clearRect(0, 0, 1100, 500);
+            ctx.lineWidth = 2;
+            for (var i in needToShow) {
+                for (var j in needToShow[i]) {
+                    needToShow[i][j].show();
+                }
+            }
+        }
+
+        //set disabled of some Button
+        //flag: Boolean
+        function setDisabledButton(flag) {
+            (document.getElementById("new_graph")).disabled = flag;
+            (document.getElementById("new_edge")).disabled = flag;
+            (document.getElementById("start")).disabled = flag;
+            (document.getElementById("pause")).disabled = !flag;
+            (document.getElementById("replay")).disabled = !flag;
+        }
+
+        //fills array needToShow
+        function setShowBinding() {
+            needToShow[0] = edges;
+            needToShow[1] = edgesOfSNM;
+            needToShow[2] = vertices;
+            needToShow[3] = verticesOfSNM;
+            needToShow[4] = [];
+            needToShow[5] = [];
+            needToShow[6] = edgeToShow;
+        }
+
+        //is called then user click on Replay
+        //returns the graph to the initial state
+        function recovery() {
+            isPlay = true;
+            setBoost();
+            isStarted = false;
+            setDisabledButton(isStarted);
+            verticesOfSNM = [];
+            edgesOfSNM = [];
+            edges = edgeToShow.map(function (e) { return e.edge; })
+            edgeToShow = [];
+            setShowBinding();
+            events = [];
+            indOfEvent = -1;
+            showAll();
+        }
+
+        //is called then user click on Start
+        //start of visualisation of algorithm of kruscale
+        function start() {
+            isStarted = true;
+            setDisabledButton(isStarted);
+            edges = edges.sort(function (a, b) { return a.cost - b.cost });
+            var j = 1;
+            edgeToShow = edges.map(function (v) {
+                return new WritingEdge(v, (++j) * LINE_INDENT);
+            })
+            verticesOfSNM = vertices.map(function (v) {
+                return new Vertex(new Point(v.centre.x + 600, v.centre.y), v.name);
+            })
+            parent = (new Array(vertices.length).fill(-1));
+            high = (new Array(vertices.length).fill(1));
+            setShowBinding();
+            needToShow[4] = [new Arrow(new Point(510, LINE_INDENT))];
+            for(var i in edges) {
+                events.push(new MovingOfArrow((2 + parseInt(i)) * LINE_INDENT));
+                var v = edges[i].begin;
+                events.push(new FindingRoot(v.name, new Pointer(verticesOfSNM[v.name].centre, COLOR_OF_POINTER_ONE)));
+                v = edges[i].end;
+                events.push(new FindingRoot(v.name, new Pointer(verticesOfSNM[v.name].centre, COLOR_OF_POINTER_TWO)));
+                events.push(new Union(edges[i]));
+            }
+            needToShow[0] = edges = [];
+            showAll()
+            indOfEvent = -1;
+            processNextEvent();
+        }
+    </script><br>
+    Select the number of vertices in graph from 3 to 15:<input id="new_graph_value" size="1">
+    <button id="new_graph" onclick="newGraph()">Create new graph</button>
+    <script>
+        //make graph witch consist from "amount" vertices
+        function newGraph() {
+            var amount = parseInt(document.getElementById("new_graph_value").value);
+            document.getElementById("new_graph_value").value = "";
+            if (isNaN(amount) || !isInInterval(amount, 3, 15))  {
+                alert("Incorrect amount of vertices! Ignore this data.")
+                return;
+            }
+            edges = [];
+            vertices = VERTICES.slice(0, amount);
+            setShowBinding();
+            showAll();
+        }
+    </script><br>
+    begin:<input id="new_edge_begin" size="1">
+    end:<input id="new_edge_end" size="1">
+    cost:<input id="new_edge_cost" size="1">
+    <button id="new_edge" onclick="newEdge()">Create new edge</button>
+    <script>
+        //if x belong [a, b] - true, otherwise - false
+        //x, a, b: Number
+        function isInInterval(x, a, b) {
+            return (x >= a && x <= b);
+        }
+
+        //if in edges there is edge, whose name of begin is b and name of end is e -> true, otherwise - false
+        //b, e: Number
+        function searchEdge(b, e) {
+            for (var i in edges)
+                if (b === edges[i].begin.name && e === edges[i].end.name)
+                    return true;
+            return false;
+        }
+
+        //make new WeightEdge
+        function newEdge() {
+            var b = parseInt(document.getElementById("new_edge_begin").value),
+                e = parseInt(document.getElementById("new_edge_end").value),
+                c = parseInt(document.getElementById("new_edge_cost").value);
+            document.getElementById("new_edge_begin").value = "";
+            document.getElementById("new_edge_end").value = "";
+            document.getElementById("new_edge_cost").value = "";
+            if (isNaN(b) || isNaN(e) || isNaN(c) || !isInInterval(b, 0, vertices.length - 1) ||
+                !isInInterval(c, -99, 99) || !isInInterval(e, 0, vertices.length - 1)) {
+                alert("Incorrect edge! Ignore this data.");
+                return;
+            }
+            if (b === e) {
+                alert("Loop! Ignore this data.");
+                return;
+            }
+            if (searchEdge(b, e) || searchEdge(e, b)) {
+                alert(b + " is already connected to " + e);
+                return;
+            }
+            var edge = new WeightEdge(vertices[b], vertices[e], c);
+            edges.push(edge);
+            showAll();
+        }
+    </script><br>
+    <button onclick="start()" id="start">Start</button>
+    <button onclick="pause()" disabled id="pause">Pause</button>
+    <script>
+        function pause() {
+            isPlay = !isPlay;
+            setBoost()
+        }
+    </script>
+    Speed:<input type="range" min="-2" max="2" step="1" value="0" id="speed" oninput="setBoost()">
+    <script>
+        function setBoost() {
+            if (isPlay)
+                boost = Math.pow(2, document.getElementById("speed").value);
+            else
+                boost = 0;
+        }
+    </script>
+    <button id="replay" onclick="recovery()" disabled>Replay</button>
+</body>
+</html>
