@@ -82,7 +82,7 @@
                 ctx.lineTo(b.x, b.y);
                 ctx.strokeStyle = GRAPH_COLOR;
                 ctx.stroke();
-                var mid = new Point((a.x + b.x) / 2, (a.y + b.y) / 2);
+                var mid = new Point(a.x + (b.x - a.x)/ 4, a.y + (b.y - a.y) / 4);
                 ctx.clearRect(mid.x - BOLD, mid.y - BOLD, 2 * BOLD, 2 * BOLD);
                 ctx.strokeRect(mid.x - BOLD, mid.y - BOLD, 2 * BOLD, 2 * BOLD);
                 showText(this.cost, SIZE_OF_TEXT, mid);
@@ -195,9 +195,20 @@
         var events = [], indOfEvent = 0; //Arrow of events and its index
         var isStarted = false, isPlay = true; //isStarted - true if kruscale is processing, otherwise false
         //isPlay - false, when is pause, otherwise - true;
+		var isManual = false;
+		var shouldStop = false;
+		
+		
 
         //process next event
         function processNextEvent() {
+			if(isManual){
+				if(shouldStop){
+					pause();				
+				}else{
+					shouldStop = true;
+				}
+			}
             if (indOfEvent + 1 == events.length)
                 return;
             events[++indOfEvent].execute();
@@ -227,7 +238,7 @@
                 showAll();
                 if (parent[v] === -1) {
                     events[indOfEvent] = v;
-                    timeout(processNextEvent);
+                    processNextEvent();
                     return;
                 }
                 var th = this;
@@ -281,7 +292,9 @@
                     if (!isStarted) return;
                     if (arrow.begin.y >= y) {
                         clearInterval(timer);
-                        timeout(processNextEvent);
+						processNextEvent();
+						
+//                        timeout(processNextEvent);
                         return;
                     }
                     arrow.slideDown(SPEED * INTERVAL_OF_ANIMATION * boost);
@@ -324,6 +337,7 @@
             (document.getElementById("start")).disabled = flag;
             (document.getElementById("pause")).disabled = !flag;
             (document.getElementById("replay")).disabled = !flag;
+			(document.getElementById("next_step")).disabled = !flag;
         }
 
         //fills array needToShow
@@ -357,6 +371,8 @@
         //is called then user click on Start
         //start of visualisation of algorithm of kruscale
         function start() {
+			isManual = false;
+			shouldStop = false;
             isStarted = true;
             setDisabledButton(isStarted);
             edges = edges.sort(function (a, b) { return a.cost - b.cost });
@@ -406,7 +422,27 @@
     end:<input id="new_edge_end" size="1">
     cost:<input id="new_edge_cost" size="1">
     <button id="new_edge" onclick="newEdge()">Create new edge</button>
+	<button id="new_random_edge" onclick="newRandomEdge()">Create new random edge</button>
+	begin:<input id="remove_edge_begin" size="1">
+	end:<input id="remove_edge_end" size="1">
+	<button id="remove_edge" onclick="removeEdge()">Delete edge</button>
     <script>
+	
+		function removeEdge(){
+			var b = parseInt(document.getElementById("remove_edge_begin").value),
+				e = parseInt(document.getElementById("remove_edge_end").value);
+			document.getElementById("remove_edge_begin").value = "";
+			document.getElementById("remove_edge_end").value = "";
+//			alert("Deleting " + b + " " + e);
+			for (var i in edges)
+                if ((b === edges[i].begin.name && e === edges[i].end.name) || (e === edges[i].begin.name && b === edges[i].end.name )){				
+                    edges.splice(i, 1);
+//					alert("alert");
+					break;
+				}
+			showAll();
+		}
+	
         //if x belong [a, b] - true, otherwise - false
         //x, a, b: Number
         function isInInterval(x, a, b) {
@@ -422,18 +458,35 @@
             return false;
         }
 
+		
+		function newRandomEdge(){
+			newEdge("random");
+		}
+		
         //make new WeightEdge
         function newEdge() {
             var b = parseInt(document.getElementById("new_edge_begin").value),
                 e = parseInt(document.getElementById("new_edge_end").value),
                 c = parseInt(document.getElementById("new_edge_cost").value);
+			if(arguments[0] === "random"){
+				for(var i = 0; i < 100;  i++){
+					b = Math.floor(Math.random() * (vertices.length ) );
+					e = Math.floor(Math.random() * (vertices.length ) );
+					c = Math.floor(Math.random() * 20 + 1);
+					if(!searchEdge(b,e) && !searchEdge(e,b) && (b !== e)){
+						break;
+					}
+				}				
+			}
+
             document.getElementById("new_edge_begin").value = "";
             document.getElementById("new_edge_end").value = "";
             document.getElementById("new_edge_cost").value = "";
             if (isNaN(b) || isNaN(e) || isNaN(c) || !isInInterval(b, 0, vertices.length - 1) ||
                 !isInInterval(c, -99, 99) || !isInInterval(e, 0, vertices.length - 1)) {
-                alert("Incorrect edge! Ignore this data.");
-                return;
+				alert("Incorrect edge! Ignore this data.");
+				return;
+				
             }
             if (b === e) {
                 alert("Loop! Ignore this data.");
@@ -450,8 +503,20 @@
     </script><br>
     <button onclick="start()" id="start">Start</button>
     <button onclick="pause()" disabled id="pause">Pause</button>
+	<button onclick="nextStep()" disabled id="next_step">Next Step</button>
     <script>
+	
+	
+		function nextStep(){
+			isManual = true;
+			pause();
+		}
+		
         function pause() {
+			if(shouldStop){
+				shouldStop = false;
+				isManual = false;
+			}
             isPlay = !isPlay;
             setBoost()
         }
